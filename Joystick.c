@@ -97,7 +97,7 @@ these buttons for our use.
 #define _flag mem[INS_OFFSET+22]
 
 // All variables other than mem must have default values. Otherwise EasyCon cannot locate the data segment.
-uint8_t mem[400] = {0xFF, 0xFF, VERSION};   // preallocated memory for all purposes, as well as static instruction carrier
+uint8_t mem[1024] = {0xFF, 0xFF, VERSION};   // preallocated memory for all purposes, as well as static instruction carrier
 size_t serial_buffer_length = 0;                      // current length of serial buffer
 bool serial_command_ready = false;             // CMD_READY acknowledged, ready to receive command byte
 uint8_t* flash_addr = 0;                                // start location for EEPROM flashing
