@@ -23,7 +23,7 @@ these buttons for our use.
 // constants
 #define VERSION 0x43
 // the echo min is 5,less than it would be instable
-#define ECHO 5
+#define ECHO 15
 #define LED_DURATION 50
 #define SERIAL_BUFFER_SIZE 20
 #define KEYCODE_MAX 33
