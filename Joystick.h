@@ -145,5 +145,6 @@ void BinaryOp(uint8_t op, uint8_t reg, int16_t value);
 void BlinkLED(void);
 // Serial_SendByte wrapper
 void Serial_Send(const char DataByte);
+void Serial_Send_button(uint16_t button,uint8_t hat);
 
 #endif

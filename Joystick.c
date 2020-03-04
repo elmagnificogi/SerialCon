@@ -20,6 +20,7 @@ these buttons for our use.
 
 #include "Joystick.h"
 
+
 // constants
 #define VERSION 0x43
 // the echo min is 5,less than it would be instable
@@ -64,7 +65,7 @@ these buttons for our use.
 #define FOR_C(i) *(int32_t*)(mem+FORSTACK_OFFSET+(i)*12+4)
 #define FOR_ADDR(i) *(uint16_t*)(mem+FORSTACK_OFFSET+(i)*12+8)
 #define FOR_NEXT(i) *(uint16_t*)(mem+FORSTACK_OFFSET+(i)*12+10)
-#define SETWAIT(time) script_nexttime=timer_ms+(time)
+#define SETWAIT(time) script_nexttime=timer_ms+(time);last_time = timer_ms;
 #define RESETAFTER(keycode,n) KEY(keycode)=n
 #define JUMP(addr) script_addr = (uint8_t*)(addr)
 #define JUMPNEAR(addr) script_addr = (uint8_t*)((uint16_t)script_addr + (addr))
@@ -110,6 +111,9 @@ uint16_t tail_wait = 0;                                   // insert an extra wai
 uint32_t timer_elapsed = 0;                          // previous execution time
 uint8_t led_counter = 0;                               // transmission led countdown
 
+USB_JoystickReport_Input_t next_report;
+uint32_t last_time = 0;
+
 // Main entry point.
 int main(void)
 {
@@ -125,9 +129,13 @@ int main(void)
         // We also need to run the main USB management task.
         USB_USBTask();
         // Manage data from/to serial port.
-        Serial_Task();
+        //Serial_Task();
         // Process local script instructions.
         Script_Task();
+
+
+        
+        //Serial_Send(66);
     }
 }
 
@@ -163,7 +171,7 @@ void SetupHardware(void)
     USB_Init();
     
     // Initialize serial port.
-    Serial_Init(9600, false);
+    Serial_Init(115200, false);
     
     // Start script.
     Script_AutoStart();
@@ -211,7 +219,7 @@ void EVENT_USB_Device_ControlRequest(void)
 
     // Not used here, it looks like we don't receive control request from the Switch.
 }
-USB_JoystickReport_Input_t next_report;
+
 
 // Process and deliver data from IN and OUT endpoints.
 void HID_Task(void)
@@ -220,44 +228,41 @@ void HID_Task(void)
     if (USB_DeviceState != DEVICE_STATE_Configured)
         return;
 
-    // [Optimized] We don't need to receive data at all.
-    if (false)
-    {
-        // We'll start with the OUT endpoint.
-        Endpoint_SelectEndpoint(JOYSTICK_OUT_EPADDR);
-        // We'll check to see if we received something on the OUT endpoint.
-        if (Endpoint_IsOUTReceived())
-        {
-            // If we did, and the packet has data, we'll react to it.
-            if (Endpoint_IsReadWriteAllowed())
-            {
-                // We'll create a place to store our data received from the host.
-                USB_JoystickReport_Output_t JoystickOutputData;
-                // We'll then take in that data, setting it up in our storage.
-                while(Endpoint_Read_Stream_LE(&JoystickOutputData, sizeof(JoystickOutputData), NULL) != ENDPOINT_RWSTREAM_NoError);
-                // At this point, we can react to this data.
-
-                // However, since we're not doing anything with this data, we abandon it.
-            }
-            // Regardless of whether we reacted to the data, we acknowledge an OUT packet on this endpoint.
-            Endpoint_ClearOUT();
-        }
-    }
-    
-    // [Optimized] Only send data when changed.
-    if (_report_echo && (!_script_running || timer_ms + 10 < script_nexttime))
+    // [Optimized] Only send data when changed and echo left
+    if (_report_echo)
     {
         // We'll then move on to the IN endpoint.
         Endpoint_SelectEndpoint(JOYSTICK_IN_EPADDR);
         // We first check to see if the host is ready to accept data.
         if (Endpoint_IsINReady())
         {
+            uint32_t last_enter_time = timer_ms;
             // Once populated, we can output this data to the host. We do this by first writing the data to the control stream.
-            while(Endpoint_Write_Stream_LE(&next_report, sizeof(next_report), NULL) != ENDPOINT_RWSTREAM_NoError);
+            while(Endpoint_Write_Stream_LE(&next_report, sizeof(next_report), NULL) != ENDPOINT_RWSTREAM_NoError)
+            {
+                // if write delay too long we think we could send next time
+                if(timer_ms - last_enter_time > 20)
+                {
+                    script_nexttime += timer_ms - last_enter_time;
+                    _report_echo++;
+                }
+            }
             // We then send an IN packet on this endpoint.
             Endpoint_ClearIN();
+            _report_echo--;
+            //Serial_Send_data(next_report.Button);
+            Serial_Send_button(next_report.Button,next_report.HAT);
+            //new_report = false;
         }
-        _report_echo--;
+        else
+        {
+            if(_report_echo == ECHO)
+            {
+               script_nexttime += timer_ms - last_time;
+               last_time = timer_ms;
+            }
+        }
+
     }
 }
 
@@ -478,6 +483,7 @@ void Script_Start(void)
     if (eof == 0xFFFF)
         eof = 0;
     script_eof = (uint8_t*)(eof & 0x7FFF);
+    last_time = 0;
     script_nexttime = 0;
     timer_ms = 0;
     // reset variables
@@ -1108,4 +1114,67 @@ void Serial_Send(const char DataByte)
 {
     Serial_SendByte(DataByte);
     BlinkLED();
+}
+
+void Serial_Send_data(uint32_t data) 
+{
+    char be_send;
+    while(data>10)
+    {
+        be_send = 48 + (data % 10);
+        data = data / 10;
+        Serial_SendByte(be_send);
+        //Serial_SendByte(10);
+    }
+    Serial_SendByte(data+48);
+}
+
+void Serial_Send_button(uint16_t button,uint8_t hat) 
+{
+    char to_be_sent;
+    switch (button)
+	{
+			case SWITCH_A:
+				to_be_sent = 'A';
+				break;
+		
+			case SWITCH_B:
+				to_be_sent = 'B';
+				break;
+			
+			case SWITCH_HOME:
+				to_be_sent = 'H';
+				break;
+		
+			default:
+                to_be_sent = '-';
+				break;
+	}
+    Serial_SendByte(to_be_sent);
+    Serial_SendByte(10);
+
+        switch (hat)
+	{
+			case HAT_LEFT:
+				to_be_sent = 'L';
+				break;
+		
+			case HAT_RIGHT:
+				to_be_sent = 'R';
+				break;
+			
+			case HAT_TOP:
+				to_be_sent = 'U';
+				break;
+
+            case HAT_BOTTOM:
+				to_be_sent = 'D';
+				break;
+            
+			default:
+                to_be_sent = '+';
+				break;
+	}
+    Serial_SendByte(to_be_sent);
+    Serial_SendByte(10);
 }
